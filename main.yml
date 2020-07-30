@@ -130,6 +130,28 @@
 #  =========
 #
 # For version 4.2/4.3  you need to pass a playbook directly !!!
+#
+#  CI - with Github Actions 
+#  ========================
+#
+# 1. Create a github repo and add the code from the 01-molecule-playbook directory.
+#
+#    - create the repo in the github UI, then from this directory ...
+#
+#    - git init
+#    - git add -A
+#    - git commit -m "Initial commit"
+#    - git remote add origin https://github.com/goffinf/molecule-playbook-testing.git
+#    - git push -u origin master
+#
+# 2. Add a .github directory with a sub-folder called workflows
+#
+# 3. Create a file called ci.yml in the workflows folder
+#
+# 4. 
+#
+#
+#
 
 - name: Install Apache
   hosts: all
