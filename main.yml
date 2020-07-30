@@ -1,0 +1,182 @@
+---
+# IMPLEMENTATION NOTES
+# ====================
+#
+# This playbook should run on any Redhat or Debian based OS
+# We want to be able to test that using molecule.
+#
+# One issue when running running MOLECULE with DOCKER is that when targetting RedHat
+# (the default distro for molecule), services will attempt to be started as
+# SYSTEMD UNITS.  Whilst possible, this can be problematic, because systemd needs
+# to be PID 1 (to provide init) and the default command used by molecule is:
+#
+#      bash -c "while true; do sleep 10000; done"
+#
+# ALSO .. if you want to test against multiple OS's, you will need different
+# docker images (centos7, centos8, debian-buster, ubuntu-20.04, etc.).
+#
+# So we need to OVERRIDE the default image and the command in : molecule.yml
+#
+# CHANGE THIS:
+# -----------
+#
+#    platforms:
+#    - name: instance
+#      image: docker.io/pycontribs/centos:8
+#      pre_build_image: true
+#
+# To THIS:  (https://github.com/geerlingguy/docker-centos8-ansible)
+# -------
+#
+#    platforms:
+#    - name: instance
+#      image: geerlingguy/docker-${MOLECULE_DISTRO:-centos8}-ansible:latest
+#      command: ""                                       <- tells molecule NOT to inject its default command and allow systemd to start as pid1
+#      volumes:
+#      - /sys/fs/cgroup:/sys/fs/cgroup:ro
+#      privileged: true
+#      pre_build_image: true
+#
+# We can see that the docker IMAGE includes the ENV var MOLECULE_DISTRO and, so long as all image name follow the pattern 
+# its possible to substitute which is used via the command-line, and thus test all OS variants:
+#
+#     MOLECULE_DISTRO=debian10 molecule converge
+#     MOLECULE_DISTRO=ubuntu2004 molecule converge
+#     ...
+#
+# Another approach could be to have a separate SCENARIO for EACH OS, but in this case most settings would be the SAME
+#
+# IMPORTANT:
+# =========
+#
+# When using WSL2, the above workaround still WILL NOT WORK because WSL2 does NOT run SYSTEMD by default or other
+# daemonized processes. If you need to use a WSL2 Linux distro, then you will NEED TO USE ONE CONFIGURED FOR SYSTEMD.
+#
+# If you forget to destroy your molecule instance you may see this error when you try and run converge/test again :
+#
+#    fatal: [instance]: UNREACHABLE! => {"changed": false, "msg": "Failed to create temporary directory.In some cases, you may have been able to authenticate and did not have permissions on the target directory. Consider changing the remote tmp path in ansible.cfg to a path rooted in \"/tmp\", for more error information use -vvv. Failed command was: ( umask 77 && mkdir -p \"` echo ~/.ansible/tmp `\"&& mkdir ~/.ansible/tmp/ansible-tmp-1596109150.628803-5631-204445236919354 && echo ansible-tmp-1596109150.628803-5631-204445236919354=\"` echo ~/.ansible/tmp/ansible-tmp-1596109150.628803-5631-204445236919354 `\" ), exited with result 1", "unreachable": true}
+#
+# If so, clean up old ephemeral files with:
+#
+#    molecule destroy --scenario-name default
+#
+# INSTRUCTIONS
+# ============
+#
+# Start by running : to create a defaul scenario in thr molecule dir
+#
+#    molecule init scenario
+#
+# By default molecule will create a ROLE (this was the origial scope for molecule)
+# and refer to that role in converge.yml.
+# BUT .. we dont want to include a role in this case
+#
+# So ...
+#
+# 1. Remove the role ref from converge.yml
+#
+#    - name: "Include 01-molecule-playbook"
+#      include_role:
+#        name: "01-molecule-playbook"
+#
+# 2. Add relevant tasks (in this case an apt cache update)
+#
+# 3. import the main import_playbook
+#
+# 4. Make changes to the image and command if using systemd (see above)
+#
+# 5. run:
+#
+#    MOLECULE_DISTRO=<distro-name> molecule converge  (or test)
+#
+# 6. molecule login  (if you want to check inside the comntainer)
+#
+# 7. Update the verify.yml to include more useful assertion tests. Then to run JUST the verify playbook:
+#
+#      molecule verify
+#
+# 8 Repeat step 7 making adjustments to the playbook as required until all tests pass.
+#
+#  BEST PRACTICE:
+#
+#  Whilst using a separate verify playbook is a good practice, oftentimes it is better to put
+#  simple assertions DIRECTLY INTO THE MAIN PLAYBOOK.  That way, whenever the playbook is run
+#  the tests will also run (without having to use molecule).
+#
+#  This is NOT a hard-and-fast rule ... some people prefer to keep to the playbook ONLY for
+#  configuration code and separate the tests into its own playbook. Its a matter of
+#  prefered style and code organisation.
+#
+# y.  molecule destroy (to remove the running container)
+#
+#  LINTING:
+#
+# molecule init also includes a .yamllint file with some best practice rules,
+# HOWEVER, by default LINTING is NOT ENABLED.
+#
+# Since linting is generally regarded as a best practice, to ENABLE it, update the
+# molecule.yml file ... to run a lint SCRIPT : (ensure you have yammllint and ansible-lint installed)
+#
+#   lint: |
+#     set -e
+#     yamllint .
+#     ansible-lint
+#
+# then run: (to JUST run linters)
+#
+#     molecule lint
+#
+#  BUG ALERT in ansible-lint:  https://github.com/ansible/ansible-lint/issues/763
+#  =========
+#
+# For version 4.2/4.3  you need to pass a playbook directly !!!
+
+- name: Install Apache
+  hosts: all
+  become: true
+
+  vars:
+    apache_package: apache2
+    apache_service: apache2
+    apache_config_file: /etc/apache2/apache2.conf
+    apache_content_dir: /var/www/html/index.html
+
+  handlers:
+    - name: restart-apache
+      service:
+        name: "{{ apache_service }}"
+        state: restarted
+
+  pre_tasks:
+    - name: Override Apache vars for RedHat based OS's
+      set_fact:
+        apache_package: httpd
+        apache_service: httpd
+      when: ansible_os_family == 'RedHat'
+
+  tasks:
+  - name:  Ensure Apache is installed
+    package:
+      name: "{{ apache_package }}"
+      state: present
+    register: apache_install_output
+
+  - name: Copy a web page
+    copy:
+      content: |
+        <html>
+        <head><title>Hello World</title></head>
+        <body>Hello World!</body>
+        </html>
+      dest: "{{ apache_content_dir }}"
+#    notify:
+#    - restart-apache
+
+  - name: Ensure Apache is started now and at boot-time
+    service:
+      name: "{{ apache_service }}"
+      state: started
+      enabled: true
+
+  - debug:
+      msg: "ansible_os_family {{ ansible_os_family }}"
