@@ -146,12 +146,21 @@
 #
 # 2. Add a .github directory with a sub-folder called workflows
 #
-# 3. Create a file called ci.yml in the workflows folder
+# 3. Create a file called ci.yml in the workflows folder and add workflow steps
 #
-# 4. 
+# 4. Add, commit and push everything to github (this will trigger the action)
 #
+#  NOTES:
 #
+# The following environment variables ensure that:
 #
+# - the github action output is colorized correctly
+# - the distro name is passed so that correct base image is used for each OS
+#
+#          env:
+#            PY_COLORS: '1'
+#            ANSIBLE_FORCE_COLOR: '1'
+#            MOLECULE_DISTRO: ${{ matrix.distro }}
 
 - name: Install Apache
   hosts: all
