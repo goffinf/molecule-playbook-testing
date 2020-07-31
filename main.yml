@@ -200,8 +200,8 @@
         <body>Hello World!</body>
         </html>
       dest: "{{ apache_content_dir }}"
-#    notify:
-#    - restart-apache
+    notify:
+    - restart-apache
 
   - name: Ensure Apache is started now and at boot-time
     service:
